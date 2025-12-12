@@ -108,8 +108,7 @@ defmodule Madness.ResourceTest do
       assert resource.type == :a
       assert resource.class == :in
       assert resource.ttl == 300
-      assert resource.rdlength == 4
-      assert resource.rdata == <<192, 168, 1, 1>>
+      assert resource.rdata == {192, 168, 1, 1}
     end
 
     test "decodes cache_flush flag when set" do
@@ -155,14 +154,15 @@ defmodule Madness.ResourceTest do
 
   describe "round-trip encoding and decoding" do
     test "round-trips a resource with all fields" do
-      original = %Resource{
-        name: "myhost.local",
-        type: :a,
-        class: :in,
-        cache_flush: true,
-        ttl: 120,
-        rdata: <<10, 0, 0, 5>>
-      }
+      original =
+        Resource.new(%{
+          name: "myhost.local",
+          type: :a,
+          class: :in,
+          cache_flush: true,
+          ttl: 120,
+          rdata: <<10, 0, 0, 5>>
+        })
 
       {encoded, _map} = Resource.encode(original)
       assert {:ok, decoded, <<>>} = Resource.decode(encoded)
@@ -172,20 +172,21 @@ defmodule Madness.ResourceTest do
       assert decoded.class == original.class
       assert decoded.cache_flush == original.cache_flush
       assert decoded.ttl == original.ttl
-      assert decoded.rdata == original.rdata
+      assert decoded.rdata == {10, 0, 0, 5}
     end
 
     test "round-trips all common record types" do
       types = [:a, :ns, :cname, :ptr, :txt, :aaaa, :srv, :nsec, :any]
 
       for type <- types do
-        original = %Resource{
-          name: "test.local",
-          type: type,
-          class: :in,
-          ttl: 300,
-          rdata: <<1, 2, 3, 4>>
-        }
+        original =
+          Resource.new(%{
+            name: "test.local",
+            type: type,
+            class: :in,
+            ttl: 300,
+            rdata: <<1, 2, 3, 4>>
+          })
 
         {encoded, _map} = Resource.encode(original)
         assert {:ok, decoded, <<>>} = Resource.decode(encoded)

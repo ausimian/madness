@@ -91,7 +91,7 @@ defmodule Madness.MessageTest do
       assert answer.name == "example.com"
       assert answer.type == :a
       assert answer.ttl == 300
-      assert answer.rdata == <<192, 168, 1, 1>>
+      assert answer.rdata == {192, 168, 1, 1}
     end
 
     test "round-trips a message with all sections populated" do
