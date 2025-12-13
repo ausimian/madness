@@ -353,6 +353,133 @@ defmodule Madness.RdataTest do
     end
   end
 
+  describe "round-trip NSEC records" do
+    test "decodes NSEC with single type" do
+      # NSEC for "example.com" with A record type
+      # Domain name: example.com
+      name_data = <<7, "example", 3, "com", 0>>
+      # Window block: block=0, len=1, bitmap has bit 1 set (A record = type 1)
+      # Bits numbered 0-7 from MSB to LSB: bit 1 = 0b01000000
+      window_block = <<0, 1, 0b01000000>>
+
+      nsec_data = name_data <> window_block
+      decoded = Rdata.decode(:nsec, nsec_data, nsec_data)
+
+      assert decoded == %{name: "example.com", types: [:a]}
+    end
+
+    test "decodes NSEC with multiple types in same window" do
+      # NSEC with A (1), NS (2), CNAME (5) records
+      name_data = <<7, "example", 3, "com", 0>>
+      # Bitmap: bits 1, 2, 5 set (numbered from MSB)
+      # Byte 0: bit 1 (A) | bit 2 (NS) | bit 5 (CNAME) = 0b01100100
+      bitmap = <<0b01100100>>
+      window_block = <<0, 1, bitmap::binary>>
+
+      nsec_data = name_data <> window_block
+      decoded = Rdata.decode(:nsec, nsec_data, nsec_data)
+
+      assert decoded.name == "example.com"
+      assert :a in decoded.types
+      assert :ns in decoded.types
+      assert :cname in decoded.types
+      assert length(decoded.types) == 3
+    end
+
+    test "decodes NSEC with types spanning multiple bytes" do
+      # NSEC with A (1), AAAA (28), NSEC (47)
+      name_data = <<4, "test", 3, "com", 0>>
+      # A is bit 1 in byte 0: 0b01000000
+      # AAAA is bit 28 = byte 3, bit 4: byte 3 = 0b00001000
+      # NSEC is bit 47 = byte 5, bit 7: byte 5 = 0b00000001
+      bitmap = <<0b01000000, 0, 0, 0b00001000, 0, 0b00000001>>
+      window_block = <<0, 6, bitmap::binary>>
+
+      nsec_data = name_data <> window_block
+      decoded = Rdata.decode(:nsec, nsec_data, nsec_data)
+
+      assert decoded.name == "test.com"
+      assert :a in decoded.types
+      assert :aaaa in decoded.types
+      assert :nsec in decoded.types
+      assert length(decoded.types) == 3
+    end
+
+    test "decodes NSEC with multiple window blocks" do
+      # NSEC with A (1) in window 0 and a type in window 1
+      name_data = <<4, "test", 0>>
+      # Window 0: A record (bit 1)
+      window0 = <<0, 1, 0b01000000>>
+      # Window 1: type 256 (bit 0 of window 1)
+      window1 = <<1, 1, 0b10000000>>
+
+      nsec_data = name_data <> window0 <> window1
+      decoded = Rdata.decode(:nsec, nsec_data, nsec_data)
+
+      assert decoded.name == "test"
+      assert :a in decoded.types
+      assert 256 in decoded.types
+      assert length(decoded.types) == 2
+    end
+
+    test "decodes NSEC with compressed domain name" do
+      # Build a message with compression
+      {name1_encoded, map1} = Madness.Name.encode("example.com", %{}, 0)
+      offset = byte_size(name1_encoded)
+
+      # NSEC for "test.example.com" with A record
+      {nsec_name_encoded, _map2} = Madness.Name.encode("test.example.com", map1, offset)
+      window_block = <<0, 1, 0b01000000>>
+
+      message = name1_encoded <> nsec_name_encoded <> window_block
+
+      # Decode NSEC from the second position
+      nsec_data = binary_part(message, offset, byte_size(nsec_name_encoded) + byte_size(window_block))
+      decoded = Rdata.decode(:nsec, nsec_data, message)
+
+      assert decoded.name == "test.example.com"
+      assert decoded.types == [:a]
+    end
+
+    test "decodes NSEC with common DNS types" do
+      # NSEC with A, NS, CNAME, PTR, TXT, AAAA, SRV, NSEC
+      name_data = <<7, "example", 3, "com", 0>>
+      # Bits: A(1), NS(2), CNAME(5), PTR(12), TXT(16), AAAA(28), SRV(33), NSEC(47)
+      # Need 6 bytes to cover up to bit 47
+      # Byte 0 (bits 0-7): A(1), NS(2), CNAME(5) = 0b01100100
+      # Byte 1 (bits 8-15): PTR(12) = bit 4 = 0b00001000
+      # Byte 2 (bits 16-23): TXT(16) = bit 0 = 0b10000000
+      # Byte 3 (bits 24-31): AAAA(28) = bit 4 = 0b00001000
+      # Byte 4 (bits 32-39): SRV(33) = bit 1 = 0b01000000
+      # Byte 5 (bits 40-47): NSEC(47) = bit 7 = 0b00000001
+      bitmap = <<0b01100100, 0b00001000, 0b10000000, 0b00001000, 0b01000000, 0b00000001>>
+      window_block = <<0, 6, bitmap::binary>>
+
+      nsec_data = name_data <> window_block
+      decoded = Rdata.decode(:nsec, nsec_data, nsec_data)
+
+      assert decoded.name == "example.com"
+      assert :a in decoded.types
+      assert :ns in decoded.types
+      assert :cname in decoded.types
+      assert :ptr in decoded.types
+      assert :txt in decoded.types
+      assert :aaaa in decoded.types
+      assert :srv in decoded.types
+      assert :nsec in decoded.types
+    end
+
+    test "decodes NSEC with no types (empty bitmap)" do
+      # NSEC with no types (shouldn't happen in practice but should handle gracefully)
+      name_data = <<7, "example", 3, "com", 0>>
+
+      decoded = Rdata.decode(:nsec, name_data, name_data)
+
+      assert decoded.name == "example.com"
+      assert decoded.types == []
+    end
+  end
+
   describe "integration with compressed messages" do
     test "multiple CNAME records share compression map" do
       # Simulate encoding multiple CNAMEs in a message
