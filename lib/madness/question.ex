@@ -7,9 +7,13 @@ defmodule Madness.Question do
     field(:type, Madness.Type.t())
     field(:class, Madness.Class.t(), default: :in)
     field(:unicast_response, boolean(), default: false)
-    # field(:ttl, non_neg_integer() | nil, default: nil)
-    # field(:rdlength, non_neg_integer() | nil, default: nil)
-    # field(:rdata, binary() | nil, default: nil)
+  end
+
+  def new(attrs) do
+    attrs
+    |> Map.put_new(:class, :in)
+    |> Map.put_new(:unicast_response, false)
+    |> then(&struct(__MODULE__, &1))
   end
 
   def encode(%__MODULE__{} = query, suffix_map \\ %{}, base_offset \\ 0) do

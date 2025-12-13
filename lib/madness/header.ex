@@ -8,7 +8,7 @@ defmodule Madness.Header do
   import Bitwise, only: [&&&: 2, |||: 2, >>>: 2, <<<: 2]
 
   typedstruct enforce: true do
-    field(:id, non_neg_integer())
+    field(:id, non_neg_integer(), default: 0)
     field(:qr, boolean(), default: false)
     field(:opcode, non_neg_integer(), default: 0)
     field(:aa, boolean(), default: false)

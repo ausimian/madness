@@ -9,6 +9,14 @@ defmodule Madness.Message do
     field(:additionals, [Madness.Resource.t()], default: [])
   end
 
+  @spec new() :: t()
+  def new, do: %__MODULE__{header: %Madness.Header{}}
+
+  @spec encode_query([Madness.Question.t()]) :: iodata()
+  def encode_query(questions) do
+    encode(%{new() | questions: questions})
+  end
+
   @doc """
   Encode a DNS message struct to iodata.
 
@@ -35,7 +43,7 @@ defmodule Madness.Message do
     {encoded_authorities, suffix_map, offset} =
       encode_list(message.authorities, suffix_map, offset, &Madness.Resource.encode/3)
 
-    {encoded_additionals, suffix_map, _offset} =
+    {encoded_additionals, _suffix_map, _offset} =
       encode_list(message.additionals, suffix_map, offset, &Madness.Resource.encode/3)
 
     iodata = [
@@ -46,7 +54,7 @@ defmodule Madness.Message do
       encoded_additionals
     ]
 
-    {iodata, suffix_map}
+    iodata
   end
 
   defp encode_list(items, suffix_map, offset, encode_fn) do

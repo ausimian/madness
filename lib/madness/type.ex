@@ -3,7 +3,15 @@ defmodule Madness.Type do
   DNS Resource Record Type conversions.
   """
 
+  defguard is_valid_type(t)
+           when t in [:a, :ns, :cname, :ptr, :txt, :aaaa, :srv, :nsec, :any] or is_integer(t)
+
   @type t() :: non_neg_integer() | atom()
+
+  @type query_type() :: :a | :cname | :ptr | :txt | :aaaa | :srv | :any
+
+  defguard is_valid_query_type(t)
+           when t in [:a, :cname, :ptr, :txt, :aaaa, :srv, :any]
 
   @doc """
   Convert an rrtype atom to its integer value.
