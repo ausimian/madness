@@ -8,6 +8,7 @@ defmodule Madness.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      {Madness.Cache, []}
       # Starts a worker by calling: Madness.Worker.start_link(arg)
       # {Madness.Worker, arg}
     ]
