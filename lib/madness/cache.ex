@@ -46,20 +46,42 @@ defmodule Madness.Cache do
 
   @impl true
   def handle_continue(:listen, nil) do
-    {:ok, sock} =
-      :gen_udp.open(@mdns_port, [
-        :binary,
-        active: true,
-        add_membership: {@multicast_addr, {0, 0, 0, 0}},
-        reuseport: true,
-        multicast_loop: false,
-        multicast_ttl: 255
-      ])
+    {:ok, sock} = :socket.open(:inet, :dgram, :udp)
 
-    {:noreply, sock}
+    [
+      {:socket, :reuseaddr, true},
+      {:socket, :reuseport, true},
+      {:ip, :multicast_loop, false},
+      {:ip, :multicast_ttl, 255},
+      {:ip, :add_membership, %{multiaddr: @multicast_addr, interface: {0, 0, 0, 0}}},
+      {:ip, :pktinfo, true}
+    ]
+    |> Enum.each(fn {level, opt, val} -> :ok = :socket.setopt(sock, level, opt, val) end)
+
+    :ok = :socket.bind(sock, %{family: :inet, port: @mdns_port})
+
+    {:noreply, sock, {:continue, :recvmsg}}
+  end
+
+  def handle_continue(:recvmsg, sock) do
+    case :socket.recvmsg(sock, 65535, 0, :nowait) do
+      {:ok, %{ctrl: [%{value: %{ifindex: idx}}]}} = msg when idx != 14 ->
+        IO.inspect(msg)
+        {:noreply, sock, {:continue, :recvmsg}}
+
+      {:ok, _msg} ->
+        {:noreply, sock, {:continue, :recvmsg}}
+
+      {:select, _} ->
+        {:noreply, sock}
+    end
   end
 
   @impl true
+  def handle_info({:"$socket", sock, :select, _}, sock) do
+    {:noreply, sock, {:continue, :recvmsg}}
+  end
+
   def handle_info({:udp, sock, _, _, pkt}, sock) do
     {:ok, %Message{} = msg, <<>>} = Message.decode(pkt)
     iat = :erlang.monotonic_time()
