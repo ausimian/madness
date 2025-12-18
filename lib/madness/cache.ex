@@ -1,127 +1,324 @@
 defmodule Madness.Cache do
   use GenServer
   use TypedStruct
+  import Record, only: [defrecordp: 2]
 
   alias Madness.Resource
   alias Madness.Message
   alias Madness.Class
   alias Madness.Type
 
-  @multicast_addr {224, 0, 0, 251}
-  @mdns_port 5353
-
-  @resources __MODULE__.Resources
-  @instances __MODULE__.Instances
-
-  @type rkey() :: {String.t(), Type.t(), Class.t()}
-  @type ikey() :: {rkey, any()}
-
-  @spec resources() :: [tuple()]
-  def resources, do: :ets.tab2list(@resources)
-  def instances, do: :ets.tab2list(@instances)
-
-  def lookup(name, type, class \\ :in) do
-    rkey = {name, type, class}
-    ikeys = :ets.lookup(@resources, rkey)
-    now = :erlang.monotonic_time()
-
-    filter =
-      for ikey <- ikeys do
-        {{ikey, :_, :"$1"}, [{:>, :"$1", now}], [elem(ikey, 1)]}
-      end
-
-    :ets.select(@instances, filter)
-  end
-
+  @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
-  @impl true
-  def init(_args) do
-    :ets.new(@resources, [:bag, :protected, :named_table])
-    :ets.new(@instances, [:set, :protected, :named_table])
-    {:ok, nil, {:continue, :listen}}
+  @multicast_addr {224, 0, 0, 251}
+  @mdns_port 5353
+
+  @recvpktinfo 19
+
+  @typep key() :: {String.t(), Type.t(), Class.t(), :inet | :inet6, integer()}
+  @typep rec() :: {any(), non_neg_integer()}
+  # @typep entry() :: {:entry, key(), [rec()]}
+
+  defrecordp :entry, key: nil, recs: []
+
+  typedstruct enforce: true do
+    field :sock_ipv4, :socket.socket()
+    field :sock_ipv6, :socket.socket()
+    field :sub, reference()
+    field :ipv4_idxs, %{String.t() => {integer(), :inet.ip4_address()}}, default: %{}
+    field :ipv6_idxs, %{String.t() => integer()}, default: %{}
   end
 
   @impl true
-  def handle_continue(:listen, nil) do
-    {:ok, sock} = :socket.open(:inet, :dgram, :udp)
+  def init(_args) do
+    # Create the ETS table for cache
+    :ets.new(__MODULE__, [:set, :protected, :named_table, keypos: entry(:key) + 1])
 
+    # Subscribe to interface events
+    ref = Madness.InertialHandler.install()
+
+    # Create IPv4 and IPv6 sockets and send self messages to listen on them
+    {:ok, sock_ipv4} = :socket.open(:inet, :dgram, :udp)
+    send(self(), {:listen, sock_ipv4})
+
+    {:ok, sock_ipv6} = :socket.open(:inet6, :dgram, :udp)
+    send(self(), {:listen, sock_ipv6})
+
+    {:ok, %__MODULE__{sub: ref, sock_ipv4: sock_ipv4, sock_ipv6: sock_ipv6}}
+  end
+
+  @impl true
+  def handle_continue({:recvmsg, sock} = cont, %__MODULE__{} = state) do
+    # Do a non-blocking recvmsg on the socket
+    case :socket.recvmsg(sock, 65535, 0, :nowait) do
+      {:ok, %{addr: %{family: :inet}, iov: iov, ctrl: [%{value: %{ifindex: ifindex}}]}} ->
+        process_packet(iov, :inet, ifindex)
+        {:noreply, state, {:continue, cont}}
+
+      {:ok, %{addr: %{family: :inet6, scope_id: ifindex}, iov: iov}} ->
+        process_packet(iov, :inet6, ifindex)
+        {:noreply, state, {:continue, cont}}
+
+      {:select, _} ->
+        {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_info({:"$socket", sock, :select, _}, %__MODULE__{} = state) do
+    # Socket is ready, continue receiving messages
+    {:noreply, state, {:continue, {:recvmsg, sock}}}
+  end
+
+  def handle_info({ref, event}, %__MODULE__{sub: ref} = state) do
+    # Handle interface events
+    case event do
+      %{type: :if_up, ifname: ifname} ->
+        {:noreply, maybe_add_ipv6_membership(ifname, state)}
+
+      %{type: :if_down, ifname: ifname} ->
+        {:noreply, maybe_drop_ipv6_membership(ifname, state)}
+
+      %{type: :new_addr, ifname: ifname, addr: {_, _, _, _} = addr} ->
+        {:noreply, maybe_add_ipv4_membership(ifname, addr, state)}
+
+      %{type: :del_addr, ifname: ifname, addr: {_, _, _, _} = addr} ->
+        {:noreply, maybe_drop_ipv4_membership(ifname, addr, state)}
+
+      _other ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:listen, sock}, %__MODULE__{sock_ipv4: sock} = state) do
+    # Join the multicast group on ipv4 interfaces
     [
       {:socket, :reuseaddr, true},
       {:socket, :reuseport, true},
       {:ip, :multicast_loop, false},
-      {:ip, :multicast_ttl, 255},
-      {:ip, :add_membership, %{multiaddr: @multicast_addr, interface: {0, 0, 0, 0}}},
+      {:ip, :multicast_ttl, 1},
       {:ip, :pktinfo, true}
     ]
     |> Enum.each(fn {level, opt, val} -> :ok = :socket.setopt(sock, level, opt, val) end)
 
     :ok = :socket.bind(sock, %{family: :inet, port: @mdns_port})
 
-    {:noreply, sock, {:continue, :recvmsg}}
+    {:noreply, join_ipv4(state), {:continue, {:recvmsg, sock}}}
   end
 
-  def handle_continue(:recvmsg, sock) do
-    case :socket.recvmsg(sock, 65535, 0, :nowait) do
-      {:ok, %{ctrl: [%{value: %{ifindex: idx}}]}} = msg when idx != 14 ->
-        IO.inspect(msg)
-        {:noreply, sock, {:continue, :recvmsg}}
+  def handle_info({:listen, sock}, %__MODULE__{sock_ipv6: sock} = state) do
+    # Join the multicast group on ipv6 interfaces
+    [
+      {:socket, :reuseaddr, true},
+      {:socket, :reuseport, true},
+      {:ipv6, :multicast_loop, false},
+      {:ipv6, :multicast_hops, 1},
+      {{:ipv6, @recvpktinfo}, true}
+    ]
+    |> Enum.each(fn
+      {level, opt, val} -> :ok = :socket.setopt(sock, level, opt, val)
+      {{level, opt}, val} -> :ok = :socket.setopt_native(sock, {level, opt}, val)
+    end)
 
-      {:ok, _msg} ->
-        {:noreply, sock, {:continue, :recvmsg}}
+    :ok = :socket.bind(sock, %{family: :inet6, port: @mdns_port})
 
-      {:select, _} ->
-        {:noreply, sock}
+    {:noreply, join_ipv6(state), {:continue, {:recvmsg, sock}}}
+  end
+
+  defp join_ipv4(%__MODULE__{} = state) do
+    # For ipv4, we join per address
+    {:ok, ifaddrs} = :net.getifaddrs(%{family: :inet, flags: [:up, :multicast]})
+
+    ifaddrs
+    |> Enum.filter(&matches_iface/1)
+    |> Enum.reduce(state, fn %{name: name, addr: %{addr: addr}}, state ->
+      maybe_add_ipv4_membership(name, addr, state)
+    end)
+  end
+
+  defp join_ipv6(%__MODULE__{} = state) do
+    # For ipv6, we join per interface
+    {:ok, ifaddrs} = :net.getifaddrs(%{family: :inet6, flags: [:up, :multicast]})
+
+    ifaddrs
+    |> Enum.filter(&matches_iface/1)
+    |> Enum.map(& &1.name)
+    |> Enum.uniq()
+    |> Enum.reduce(state, &maybe_add_ipv6_membership/2)
+  end
+
+  defp matches_iface(%{name: name}), do: supported_iface?(to_string(name))
+
+  defp supported_iface?(name) when is_binary(name) do
+    # TODO: Expand to other interface name prefixes as needed
+    Enum.any?(["en"], &String.starts_with?(name, &1))
+  end
+
+  defp maybe_add_ipv4_membership(name, addr, %__MODULE__{} = state) when is_binary(name) do
+    # Try to add the ipv4 address to the multicast group
+    case :net.if_name2index(to_charlist(name)) do
+      {:ok, ifindex} ->
+        case add_ipv4_membership(state.sock_ipv4, addr) do
+          :ok ->
+            ipv4_idxs = Map.put(state.ipv4_idxs, name, {ifindex, addr})
+            %{state | ipv4_idxs: ipv4_idxs}
+
+          error ->
+            IO.inspect(error, label: "Error adding membership for #{name}")
+            state
+        end
+
+      {:error, _} ->
+        state
     end
   end
 
-  @impl true
-  def handle_info({:"$socket", sock, :select, _}, sock) do
-    {:noreply, sock, {:continue, :recvmsg}}
+  defp maybe_add_ipv4_membership(name, addr, %__MODULE__{} = state) when is_list(name) do
+    maybe_add_ipv4_membership(to_string(name), addr, state)
   end
 
-  def handle_info({:udp, sock, _, _, pkt}, sock) do
-    {:ok, %Message{} = msg, <<>>} = Message.decode(pkt)
+  defp add_ipv4_membership(sock, addr) do
+    member = %{multiaddr: @multicast_addr, interface: addr}
+    :socket.setopt(sock, {:ip, :add_membership}, member)
+  end
+
+  defp maybe_drop_ipv4_membership(name, addr, %__MODULE__{} = state) when is_binary(name) do
+    # Try to drop the ipv4 address from the multicast group
+    case Map.pop(state.ipv4_idxs, name) do
+      {{ifindex, ^addr}, updated} ->
+        drop_ipv4_membership(state.sock_ipv4, addr)
+
+        :ets.select_delete(__MODULE__, [{{:entry, {:_, :_, :_, :inet4, ifindex}, :_}, [], [true]}])
+
+        %{state | ipv4_idxs: updated}
+
+      _ ->
+        state
+    end
+  end
+
+  defp drop_ipv4_membership(sock, addr) do
+    member = %{multiaddr: @multicast_addr, interface: addr}
+    :ok = :socket.setopt(sock, {:ip, :drop_membership}, member)
+  end
+
+  defp maybe_add_ipv6_membership(name, %__MODULE__{} = state) when is_binary(name) do
+    # Try to add the interface to the ipv6 multicast group
+    case :net.if_name2index(to_charlist(name)) do
+      {:ok, ifindex} ->
+        case add_ipv6_membership(state.sock_ipv6, ifindex) do
+          :ok ->
+            ipv6_idxs = Map.put(state.ipv6_idxs, name, ifindex)
+            %{state | ipv6_idxs: ipv6_idxs}
+
+          error ->
+            IO.inspect(error, label: "Error adding membership for #{name}")
+            state
+        end
+
+      {:error, _} ->
+        state
+    end
+  end
+
+  defp maybe_add_ipv6_membership(name, %__MODULE__{} = state) when is_list(name) do
+    maybe_add_ipv6_membership(to_string(name), state)
+  end
+
+  defp add_ipv6_membership(sock, ifindex) do
+    raw = <<0xFF02::16, 0::96, 0xFB::16, ifindex::32-native>>
+    :socket.setopt_native(sock, {41, 12}, raw)
+  end
+
+  defp maybe_drop_ipv6_membership(name, %__MODULE__{} = state) when is_binary(name) do
+    # Try to drop the interface from the ipv6 multicast group
+    case Map.pop(state.ipv6_idxs, name) do
+      {ifindex, updated} when is_integer(ifindex) ->
+        drop_ipv6_membership(state.sock_ipv6, ifindex)
+
+        :ets.select_delete(__MODULE__, [{{:entry, {:_, :_, :_, :inet6, ifindex}, :_}, [], [true]}])
+
+        %{state | ipv6_idxs: updated}
+
+      _ ->
+        state
+    end
+  end
+
+  defp drop_ipv6_membership(sock, ifindex) do
+    raw = <<0xFF02::16, 0::96, 0xFB::16, ifindex::32-native>>
+    :ok = :socket.setopt_native(sock, {41, 13}, raw)
+  end
+
+  defp process_packet(packet, family, ifindex) do
+    # Decode the DNS message
+    {:ok, %Message{} = msg, <<>>} =
+      packet
+      |> IO.iodata_to_binary()
+      |> Message.decode()
+
+    process_message(msg, family, ifindex)
+  end
+
+  defp process_message(%Message{} = msg, family, ifindex) do
+    # Process all resource records in the message
     iat = :erlang.monotonic_time()
-    :ok = process_resources(msg.answers, iat)
-    :ok = process_resources(msg.authorities, iat)
-    :ok = process_resources(msg.additionals, iat)
-    {:noreply, sock}
+    :ok = process_resources(msg.answers, family, ifindex, iat)
+    :ok = process_resources(msg.authorities, family, ifindex, iat)
+    :ok = process_resources(msg.additionals, family, ifindex, iat)
   end
 
-  defp process_resources([], _iat), do: :ok
+  defp process_resources([], _family, _ifindex, _iat), do: :ok
 
-  defp process_resources([%Resource{} = res | rest], iat) do
-    if res.cache_flush, do: flush_cache(res)
+  defp process_resources([%Resource{type: type} = res | rest], family, ifindex, iat)
+       when is_atom(type) do
+    key = {res.name, res.type, res.class, family, ifindex}
 
-    # Insert the entry into the resources table
-    rkey = {res.name, res.type, res.class}
-    ikey = {rkey, res.rdata}
-    :ets.insert(@resources, ikey)
+    recs = if res.cache_flush, do: [], else: lookup_recs(key)
 
-    # Insert (or update) the instances table
-    xat = iat + :erlang.convert_time_unit(res.ttl, :second, :native)
-    entry = {ikey, iat, xat}
-    props = [{2, iat}, {3, xat}]
+    if res.ttl == 0 do
+      remove_recs(key, recs, res.rdata)
+    else
+      xat = iat + :erlang.convert_time_unit(res.ttl, :second, :native)
+      rec = {res.rdata, xat}
+      update_recs(key, recs, rec)
+    end
 
-    :ets.update_element(@instances, ikey, props, entry)
-
-    process_resources(rest, iat)
+    process_resources(rest, family, ifindex, iat)
   end
 
-  defp flush_cache(%Resource{name: name, type: type, class: class}) do
-    rkey = {name, type, class}
-    ikeys = :ets.lookup(@resources, rkey)
+  defp process_resources([_res | rest], family, ifindex, iat) do
+    process_resources(rest, family, ifindex, iat)
+  end
 
-    filter =
-      for ikey <- ikeys do
-        {{ikey, :_, :_}, [], [true]}
+  @spec lookup_recs(key()) :: [rec()]
+  defp lookup_recs(key) do
+    case :ets.lookup(__MODULE__, key) do
+      [entry(recs: recs)] -> recs
+      [] -> []
+    end
+  end
+
+  @spec remove_recs(key(), [rec()], any()) :: :ok
+  defp remove_recs(key, recs, rdata) do
+    updated = for {data, _} = rec <- recs, data != rdata, do: rec
+    :ets.insert(__MODULE__, entry(key: key, recs: updated))
+    :ok
+  end
+
+  @spec update_recs(key(), [rec()], rec()) :: :ok
+  defp update_recs(key, recs, {rdata, _} = rec) do
+    updated =
+      if index = Enum.find_index(recs, fn {data, _} -> data == rdata end) do
+        List.replace_at(recs, index, rec)
+      else
+        [rec | recs]
       end
 
-    :ets.select_delete(@instances, filter)
-    :ets.delete(@resources, rkey)
+    :ets.insert(__MODULE__, entry(key: key, recs: updated))
     :ok
   end
 end

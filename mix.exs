@@ -22,7 +22,8 @@ defmodule Madness.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:typedstruct, "~> 0.5"}
+      {:typedstruct, "~> 0.5", runtime: false},
+      {:inertial, path: "../inertial"}
     ]
   end
 end
