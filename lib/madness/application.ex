@@ -8,7 +8,8 @@ defmodule Madness.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      {Madness.Cache, []}
+      {Madness.Cache, []},
+      {DynamicSupervisor, strategy: :one_for_one, name: Madness.ClientSupervisor}
       # Starts a worker by calling: Madness.Worker.start_link(arg)
       # {Madness.Worker, arg}
     ]
@@ -17,5 +18,9 @@ defmodule Madness.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Madness.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  def start_client(args) do
+    DynamicSupervisor.start_child(Madness.ClientSupervisor, {Madness.Client, args})
   end
 end

@@ -7,22 +7,55 @@ defmodule Madness.Cache do
   alias Madness.Message
   alias Madness.Class
   alias Madness.Type
+  alias Madness.Question
+
+  @typep key() :: {String.t(), Type.t(), Class.t(), :inet | :inet6, integer()}
+  @typep rec() :: {any(), non_neg_integer(), integer()}
+  # @typep entry() :: {:entry, key(), [rec()]}
+
+  defrecordp :entry, key: nil, recs: []
 
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
+  @spec lookup([Question.t()], :inet | :inet6, non_neg_integer()) :: [Resource.t()]
+  def lookup(questions, family, ifindex) do
+    now = :erlang.monotonic_time(:second)
+
+    Enum.reduce(questions, [], fn q, known ->
+      key = {q.name, q.type, q.class, family, ifindex}
+
+      case :ets.lookup(__MODULE__, key) do
+        [entry(recs: recs)] ->
+          Enum.reduce(recs, known, fn {data, ttl, xat}, valid ->
+            rem = xat - now
+
+            if rem * 2 > ttl do
+              attrs = %{name: q.name, type: q.type, class: q.class, ttl: rem, rdata: data}
+              [Resource.new(attrs) | valid]
+            else
+              valid
+            end
+          end)
+
+        [] ->
+          known
+      end
+    end)
+  end
+
+  @doc false
+  def put_response(data, family, ifindex)
+      when is_binary(data) and family in [:inet, :inet6] and is_integer(ifindex) do
+    GenServer.call(__MODULE__, {:put_response, data, family, ifindex})
+  end
+
   @multicast_addr {224, 0, 0, 251}
   @mdns_port 5353
 
   @recvpktinfo 19
-
-  @typep key() :: {String.t(), Type.t(), Class.t(), :inet | :inet6, integer()}
-  @typep rec() :: {any(), non_neg_integer()}
-  # @typep entry() :: {:entry, key(), [rec()]}
-
-  defrecordp :entry, key: nil, recs: []
 
   typedstruct enforce: true do
     field :sock_ipv4, :socket.socket()
@@ -48,6 +81,14 @@ defmodule Madness.Cache do
     send(self(), {:listen, sock_ipv6})
 
     {:ok, %__MODULE__{sub: ref, sock_ipv4: sock_ipv4, sock_ipv6: sock_ipv6}}
+  end
+
+  @impl true
+  def handle_call({:put_response, data, family, ifindex}, from, %__MODULE__{} = state) do
+    # Reply immediately to the caller, then process the packet
+    GenServer.reply(from, :ok)
+    process_packet(data, family, ifindex)
+    {:noreply, state}
   end
 
   @impl true
@@ -166,8 +207,7 @@ defmodule Madness.Cache do
             ipv4_idxs = Map.put(state.ipv4_idxs, name, {ifindex, addr})
             %{state | ipv4_idxs: ipv4_idxs}
 
-          error ->
-            IO.inspect(error, label: "Error adding membership for #{name}")
+          _ ->
             state
         end
 
@@ -214,8 +254,7 @@ defmodule Madness.Cache do
             ipv6_idxs = Map.put(state.ipv6_idxs, name, ifindex)
             %{state | ipv6_idxs: ipv6_idxs}
 
-          error ->
-            IO.inspect(error, label: "Error adding membership for #{name}")
+          _ ->
             state
         end
 
@@ -265,7 +304,7 @@ defmodule Madness.Cache do
 
   defp process_message(%Message{} = msg, family, ifindex) do
     # Process all resource records in the message
-    iat = :erlang.monotonic_time()
+    iat = :erlang.monotonic_time(:second)
     :ok = process_resources(msg.answers, family, ifindex, iat)
     :ok = process_resources(msg.authorities, family, ifindex, iat)
     :ok = process_resources(msg.additionals, family, ifindex, iat)
@@ -282,8 +321,7 @@ defmodule Madness.Cache do
     if res.ttl == 0 do
       remove_recs(key, recs, res.rdata)
     else
-      xat = iat + :erlang.convert_time_unit(res.ttl, :second, :native)
-      rec = {res.rdata, xat}
+      rec = {res.rdata, res.ttl, iat + res.ttl}
       update_recs(key, recs, rec)
     end
 
@@ -310,9 +348,9 @@ defmodule Madness.Cache do
   end
 
   @spec update_recs(key(), [rec()], rec()) :: :ok
-  defp update_recs(key, recs, {rdata, _} = rec) do
+  defp update_recs(key, recs, {rdata, _, _} = rec) do
     updated =
-      if index = Enum.find_index(recs, fn {data, _} -> data == rdata end) do
+      if index = Enum.find_index(recs, fn {data, _, _} -> data == rdata end) do
         List.replace_at(recs, index, rec)
       else
         [rec | recs]

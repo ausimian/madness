@@ -6,13 +6,13 @@ defmodule Madness.Question do
     field(:name, String.t())
     field(:type, Madness.Type.t())
     field(:class, Madness.Class.t(), default: :in)
-    field(:unicast_response, boolean(), default: false)
+    field(:unicast_response, boolean(), default: true)
   end
 
   def new(attrs) do
     attrs
     |> Map.put_new(:class, :in)
-    |> Map.put_new(:unicast_response, false)
+    |> Map.put_new(:unicast_response, true)
     |> then(&struct(__MODULE__, &1))
   end
 
