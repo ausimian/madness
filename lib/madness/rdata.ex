@@ -7,11 +7,11 @@ defmodule Madness.Rdata do
   import Bitwise, only: [&&&: 2, |||: 2, <<<: 2]
 
   @spec encode(Type.t(), any(), map(), non_neg_integer()) :: {binary(), map()}
-  def encode(:a, <<a1, a2, a3, a4>>, suffix_map, _offset) do
+  def encode(:a, {a1, a2, a3, a4}, suffix_map, _offset) do
     {<<a1, a2, a3, a4>>, suffix_map}
   end
 
-  def encode(:aaaa, <<a::16, b::16, c::16, d::16, e::16, f::16, g::16, h::16>>, map, _offset) do
+  def encode(:aaaa, {a, b, c, d, e, f, g, h}, map, _offset) do
     {<<a::16, b::16, c::16, d::16, e::16, f::16, g::16, h::16>>, map}
   end
 
@@ -62,10 +62,6 @@ defmodule Madness.Rdata do
       end)
 
     {IO.iodata_to_binary([encoded_name | window_blocks]), updated_suffix_map}
-  end
-
-  def encode(_type, rdata, suffix_map, _offset) do
-    {rdata, suffix_map}
   end
 
   @spec decode(Type.t(), binary(), binary()) :: any()
