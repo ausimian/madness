@@ -148,23 +148,28 @@ defmodule Madness.Cache do
     {:noreply, state, {:continue, {:recvmsg, sock}}}
   end
 
-  def handle_info({ref, event}, %__MODULE__{sub: ref} = state) do
-    # Handle interface events
-    case event do
-      %{type: :if_up, ifname: ifname} ->
-        {:noreply, maybe_add_ipv6_membership(ifname, state)}
+  def handle_info({ref, %{ifname: ifname} = event}, %__MODULE__{sub: ref} = state) do
+    prefixes = Application.get_env(:madness, :interface_prefixes, [ifname])
 
-      %{type: :if_down, ifname: ifname} ->
-        {:noreply, maybe_drop_ipv6_membership(ifname, state)}
+    if Enum.any?(prefixes, &String.starts_with?(ifname, &1)) do
+      case event do
+        %{type: :if_up} ->
+          {:noreply, maybe_add_ipv6_membership(ifname, state)}
 
-      %{type: :new_addr, ifname: ifname, addr: {_, _, _, _} = addr} ->
-        {:noreply, maybe_add_ipv4_membership(ifname, addr, state)}
+        %{type: :if_down} ->
+          {:noreply, maybe_drop_ipv6_membership(ifname, state)}
 
-      %{type: :del_addr, ifname: ifname, addr: {_, _, _, _} = addr} ->
-        {:noreply, maybe_drop_ipv4_membership(ifname, addr, state)}
+        %{type: :new_addr, addr: {_, _, _, _} = addr} ->
+          {:noreply, maybe_add_ipv4_membership(ifname, addr, state)}
 
-      _other ->
-        {:noreply, state}
+        %{type: :del_addr, addr: {_, _, _, _} = addr} ->
+          {:noreply, maybe_drop_ipv4_membership(ifname, addr, state)}
+
+        _other ->
+          {:noreply, state}
+      end
+    else
+      {:noreply, state}
     end
   end
 
@@ -280,7 +285,6 @@ defmodule Madness.Cache do
   end
 
   defp maybe_add_ipv6_membership(name, %__MODULE__{} = state) when is_binary(name) do
-    # Try to add the interface to the ipv6 multicast group
     case :net.if_name2index(to_charlist(name)) do
       {:ok, ifindex} ->
         case add_ipv6_membership(state.sock_ipv6, ifindex) do
