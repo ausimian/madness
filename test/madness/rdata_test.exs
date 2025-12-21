@@ -40,8 +40,11 @@ defmodule Madness.RdataTest do
 
   describe "round-trip AAAA records" do
     test "encodes and decodes an IPv6 address" do
-      original_binary = <<0x2001::16, 0x0db8::16, 0x85a3::16, 0x0000::16, 0x0000::16, 0x8a2e::16, 0x0370::16, 0x7334::16>>
-      expected_tuple = {0x2001, 0x0db8, 0x85a3, 0x0000, 0x0000, 0x8a2e, 0x0370, 0x7334}
+      original_binary =
+        <<0x2001::16, 0x0DB8::16, 0x85A3::16, 0x0000::16, 0x0000::16, 0x8A2E::16, 0x0370::16,
+          0x7334::16>>
+
+      expected_tuple = {0x2001, 0x0DB8, 0x85A3, 0x0000, 0x0000, 0x8A2E, 0x0370, 0x7334}
 
       {encoded, _map} = Rdata.encode(:aaaa, original_binary, %{}, 0)
       decoded = Rdata.decode(:aaaa, encoded, encoded)
@@ -54,9 +57,12 @@ defmodule Madness.RdataTest do
       test_cases = [
         {<<0::16, 0::16, 0::16, 0::16, 0::16, 0::16, 0::16, 0::16>>, {0, 0, 0, 0, 0, 0, 0, 0}},
         {<<0::16, 0::16, 0::16, 0::16, 0::16, 0::16, 0::16, 1::16>>, {0, 0, 0, 0, 0, 0, 0, 1}},
-        {<<0x2001::16, 0x0db8::16, 0x85a3::16, 0x0000::16, 0x0000::16, 0x8a2e::16, 0x0370::16, 0x7334::16>>, {0x2001, 0x0db8, 0x85a3, 0x0000, 0x0000, 0x8a2e, 0x0370, 0x7334}},
-        {<<0xfe80::16, 0::16, 0::16, 0::16, 0::16, 0::16, 0::16, 1::16>>, {0xfe80, 0, 0, 0, 0, 0, 0, 1}},
-        {<<0xffff::16, 0xffff::16, 0xffff::16, 0xffff::16, 0xffff::16, 0xffff::16, 0xffff::16, 0xffff::16>>, {0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff}}
+        {<<0x2001::16, 0x0DB8::16, 0x85A3::16, 0x0000::16, 0x0000::16, 0x8A2E::16, 0x0370::16,
+           0x7334::16>>, {0x2001, 0x0DB8, 0x85A3, 0x0000, 0x0000, 0x8A2E, 0x0370, 0x7334}},
+        {<<0xFE80::16, 0::16, 0::16, 0::16, 0::16, 0::16, 0::16, 1::16>>,
+         {0xFE80, 0, 0, 0, 0, 0, 0, 1}},
+        {<<0xFFFF::16, 0xFFFF::16, 0xFFFF::16, 0xFFFF::16, 0xFFFF::16, 0xFFFF::16, 0xFFFF::16,
+           0xFFFF::16>>, {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}}
       ]
 
       for {binary, tuple} <- test_cases do
@@ -68,7 +74,9 @@ defmodule Madness.RdataTest do
     end
 
     test "encoded AAAA record is exactly 16 bytes" do
-      {encoded, _map} = Rdata.encode(:aaaa, <<1::16, 2::16, 3::16, 4::16, 5::16, 6::16, 7::16, 8::16>>, %{}, 0)
+      {encoded, _map} =
+        Rdata.encode(:aaaa, <<1::16, 2::16, 3::16, 4::16, 5::16, 6::16, 7::16, 8::16>>, %{}, 0)
+
       assert byte_size(encoded) == 16
     end
   end
@@ -279,7 +287,8 @@ defmodule Madness.RdataTest do
       decoded = Rdata.decode(:txt, encoded, encoded)
 
       assert decoded == original
-      assert byte_size(encoded) == 256  # 1 length byte + 255 data bytes
+      # 1 length byte + 255 data bytes
+      assert byte_size(encoded) == 256
     end
   end
 
@@ -291,7 +300,8 @@ defmodule Madness.RdataTest do
       decoded = Rdata.decode(:unknown_type, encoded, encoded)
 
       assert decoded == original
-      assert encoded == original  # Should pass through unchanged
+      # Should pass through unchanged
+      assert encoded == original
     end
 
     test "handles empty binary for unknown types" do
@@ -315,7 +325,9 @@ defmodule Madness.RdataTest do
 
     test "AAAA record encoding returns unchanged suffix map" do
       map = %{"example.com" => 100}
-      {_encoded, returned_map} = Rdata.encode(:aaaa, <<1::16, 2::16, 3::16, 4::16, 5::16, 6::16, 7::16, 8::16>>, map, 0)
+
+      {_encoded, returned_map} =
+        Rdata.encode(:aaaa, <<1::16, 2::16, 3::16, 4::16, 5::16, 6::16, 7::16, 8::16>>, map, 0)
 
       assert returned_map == map
     end
@@ -434,7 +446,9 @@ defmodule Madness.RdataTest do
       message = name1_encoded <> nsec_name_encoded <> window_block
 
       # Decode NSEC from the second position
-      nsec_data = binary_part(message, offset, byte_size(nsec_name_encoded) + byte_size(window_block))
+      nsec_data =
+        binary_part(message, offset, byte_size(nsec_name_encoded) + byte_size(window_block))
+
       decoded = Rdata.decode(:nsec, nsec_data, message)
 
       assert decoded.name == "test.example.com"
@@ -485,7 +499,9 @@ defmodule Madness.RdataTest do
       # Simulate encoding multiple CNAMEs in a message
       {enc1, map1} = Rdata.encode(:cname, "example.com", %{}, 0)
       {enc2, map2} = Rdata.encode(:cname, "www.example.com", map1, byte_size(enc1))
-      {enc3, _map3} = Rdata.encode(:cname, "mail.example.com", map2, byte_size(enc1) + byte_size(enc2))
+
+      {enc3, _map3} =
+        Rdata.encode(:cname, "mail.example.com", map2, byte_size(enc1) + byte_size(enc2))
 
       message = enc1 <> enc2 <> enc3
 
@@ -505,7 +521,8 @@ defmodule Madness.RdataTest do
       assert dec3 == "mail.example.com"
 
       # Verify compression saved space
-      uncompressed_size = 13 + 17 + 18  # Length of each name + terminators
+      # Length of each name + terminators
+      uncompressed_size = 13 + 17 + 18
       compressed_size = byte_size(message)
       assert compressed_size < uncompressed_size
     end

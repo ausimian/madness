@@ -457,7 +457,7 @@ defmodule Madness.MessageTest do
             type: :aaaa,
             class: :in,
             ttl: 300,
-            rdata: <<0x2001::16, 0x0db8::16, 0::16, 0::16, 0::16, 0::16, 0::16, 1::16>>
+            rdata: <<0x2001::16, 0x0DB8::16, 0::16, 0::16, 0::16, 0::16, 0::16, 1::16>>
           }
         ]
       }
@@ -468,7 +468,7 @@ defmodule Madness.MessageTest do
       assert {:ok, decoded, <<>>} = Message.decode(binary)
       answer = hd(decoded.answers)
       assert answer.type == :aaaa
-      assert answer.rdata == {0x2001, 0x0db8, 0, 0, 0, 0, 0, 1}
+      assert answer.rdata == {0x2001, 0x0DB8, 0, 0, 0, 0, 0, 1}
     end
 
     test "round-trips message with NSEC records" do
@@ -593,7 +593,7 @@ defmodule Madness.MessageTest do
       # Verify significant compression occurred
       # "example.com" appears 4 times, "ns.example.com" appears 2 times
       # Without compression this would be much larger
-      uncompressed_estimate = 12 + 17 + (4 * 23) + (2 * 26)
+      uncompressed_estimate = 12 + 17 + 4 * 23 + 2 * 26
       assert byte_size(binary) < uncompressed_estimate
 
       # Verify decoding works correctly
@@ -799,9 +799,36 @@ defmodule Madness.MessageTest do
 
     test "round-trips message with many records in each section" do
       questions = for i <- 1..10, do: %Question{name: "q#{i}.local", type: :a, class: :in}
-      answers = for i <- 1..20, do: %Resource{name: "a#{i}.local", type: :a, class: :in, ttl: 120, rdata: <<i, i, i, i>>}
-      authorities = for i <- 1..5, do: %Resource{name: "ns#{i}.local", type: :ns, class: :in, ttl: 3600, rdata: "ns.local"}
-      additionals = for i <- 1..15, do: %Resource{name: "x#{i}.local", type: :a, class: :in, ttl: 60, rdata: <<i, i, i, i>>}
+
+      answers =
+        for i <- 1..20,
+            do: %Resource{
+              name: "a#{i}.local",
+              type: :a,
+              class: :in,
+              ttl: 120,
+              rdata: <<i, i, i, i>>
+            }
+
+      authorities =
+        for i <- 1..5,
+            do: %Resource{
+              name: "ns#{i}.local",
+              type: :ns,
+              class: :in,
+              ttl: 3600,
+              rdata: "ns.local"
+            }
+
+      additionals =
+        for i <- 1..15,
+            do: %Resource{
+              name: "x#{i}.local",
+              type: :a,
+              class: :in,
+              ttl: 60,
+              rdata: <<i, i, i, i>>
+            }
 
       original = %Message{
         header: %Header{id: 9999, qr: true},
