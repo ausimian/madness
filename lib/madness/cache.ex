@@ -24,27 +24,61 @@ defmodule Madness.Cache do
   def lookup(questions, family, ifindex) do
     now = :erlang.monotonic_time(:second)
 
-    Enum.reduce(questions, [], fn q, known ->
+    {questions, MapSet.new()}
+    |> Stream.unfold(&rlookup(&1, family, ifindex, now))
+    |> Enum.to_list()
+    |> List.flatten()
+  end
+
+  defp rlookup({[], _}, _family, _ifindex, _now), do: nil
+
+  defp rlookup({[q | qs], asked}, family, ifindex, now) do
+    if MapSet.member?(asked, q) do
+      # Already asked this question, skip it
+      rlookup({qs, asked}, family, ifindex, now)
+    else
+      asked = MapSet.put(asked, q)
+
       key = {q.name, q.type, q.class, family, ifindex}
 
       case :ets.lookup(__MODULE__, key) do
         [entry(recs: recs)] ->
-          Enum.reduce(recs, known, fn {data, ttl, xat}, valid ->
-            rem = xat - now
+          {new_qs, new_ans} =
+            for {data, ttl, xat} <- recs, xat - now > div(ttl, 2), reduce: {MapSet.new(), []} do
+              {new_qs, new_ans} ->
+                rem = xat - now
+                attrs = %{name: q.name, type: q.type, class: q.class, ttl: rem, rdata: data}
+                answer = Resource.new(attrs)
 
-            if rem * 2 > ttl do
-              attrs = %{name: q.name, type: q.type, class: q.class, ttl: rem, rdata: data}
-              [Resource.new(attrs) | valid]
-            else
-              valid
+                related =
+                  answer
+                  |> related_questions()
+                  |> Enum.reject(&MapSet.member?(asked, &1))
+                  |> MapSet.new()
+
+                {MapSet.union(related, new_qs), [answer | new_ans]}
             end
-          end)
+
+          {new_ans, {Enum.to_list(new_qs) ++ qs, asked}}
 
         [] ->
-          known
+          rlookup({qs, asked}, family, ifindex, now)
       end
-    end)
+    end
   end
+
+  defp related_questions(%Resource{type: :ptr} = resrc) do
+    [%Question{name: resrc.rdata, type: :srv, class: resrc.class}]
+  end
+
+  defp related_questions(%Resource{type: :srv, rdata: %{target: host}} = resrc) do
+    txt = %Question{name: resrc.name, type: :txt, class: resrc.class}
+    a = %Question{name: host, type: :a, class: resrc.class}
+    aaaa = %Question{name: host, type: :aaaa, class: resrc.class}
+    [txt, a, aaaa]
+  end
+
+  defp related_questions(%Resource{}), do: []
 
   @doc false
   def put_response(data, family, ifindex)
