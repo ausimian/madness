@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }} (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-22.04
+            elixir: '1.16'
+            otp: '26'
+          - os: ubuntu-22.04
+            elixir: '1.17'
+            otp: '27'
+          - os: ubuntu-22.04
+            elixir: '1.18'
+            otp: '27'
+          - os: ubuntu-24.04
+            elixir: '1.19'
+            otp: '28'
+          # macOS builds
+          - os: macos-14
+            elixir: '1.17'
+            otp: '27'
+          - os: macos-14
+            elixir: '1.18'
+            otp: '27'
+          - os: macos-15
+            elixir: '1.19'
+            otp: '28'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ matrix.elixir }}
+        otp-version: ${{ matrix.otp }}
+
+    - name: Restore dependencies cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          deps
+          _build
+        key: ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Compile
+      run: mix compile --warnings-as-errors
+
+    - name: Check formatting
+      run: mix format --check-formatted
+      if: matrix.os == 'ubuntu-24.04' && matrix.elixir == '1.19'
+
+    - name: Run tests
+      run: mix test
