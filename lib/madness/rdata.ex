@@ -23,6 +23,10 @@ defmodule Madness.Rdata do
     Madness.Name.encode(ptr, suffix_map, offset)
   end
 
+  def encode(:ns, ns, suffix_map, offset) do
+    Madness.Name.encode(ns, suffix_map, offset)
+  end
+
   def encode(:srv, %{priority: prio, weight: weight, port: port, target: target}, map, offset) do
     {encoded_target, updated_suffix_map} = Madness.Name.encode(target, map, offset + 6)
     {<<prio::16, weight::16, port::16, encoded_target::binary>>, updated_suffix_map}
@@ -64,7 +68,8 @@ defmodule Madness.Rdata do
     {IO.iodata_to_binary([encoded_name | window_blocks]), updated_suffix_map}
   end
 
-  @spec decode(Type.t(), binary(), binary()) :: any()
+  @spec decode(Type.t(), binary(), binary()) ::
+          :inet.ip_address() | String.t() | map() | [String.t()] | {:error, any()}
   def decode(:a, <<a1, a2, a3, a4>>, _original_message) do
     {a1, a2, a3, a4}
   end
@@ -74,18 +79,27 @@ defmodule Madness.Rdata do
   end
 
   def decode(:cname, cname_data, original_message) do
-    {:ok, name, _rest} = Madness.Name.decode(cname_data, original_message)
-    name
+    with {:ok, name, _rest} <- Madness.Name.decode(cname_data, original_message) do
+      name
+    end
   end
 
   def decode(:ptr, ptr_data, original_message) do
-    {:ok, name, _rest} = Madness.Name.decode(ptr_data, original_message)
-    name
+    with {:ok, name, _rest} <- Madness.Name.decode(ptr_data, original_message) do
+      name
+    end
+  end
+
+  def decode(:ns, ns_data, original_message) do
+    with {:ok, name, _rest} <- Madness.Name.decode(ns_data, original_message) do
+      name
+    end
   end
 
   def decode(:srv, <<prio::16, weight::16, port::16, target_data::binary>>, original_message) do
-    {:ok, target, _rest} = Madness.Name.decode(target_data, original_message)
-    %{priority: prio, weight: weight, port: port, target: target}
+    with {:ok, target, _rest} <- Madness.Name.decode(target_data, original_message) do
+      %{priority: prio, weight: weight, port: port, target: target}
+    end
   end
 
   def decode(:txt, txt_data, _original_message) do
@@ -93,12 +107,13 @@ defmodule Madness.Rdata do
   end
 
   def decode(:nsec, nsec_data, original_message) do
-    {:ok, name, rest} = Madness.Name.decode(nsec_data, original_message)
-    %{name: name, types: decode_window_blocks(rest, [])}
+    with {:ok, name, rest} <- Madness.Name.decode(nsec_data, original_message) do
+      %{name: name, types: decode_window_blocks(rest, [])}
+    end
   end
 
-  def decode(_type, rdata, _original_message) do
-    rdata
+  def decode(_type, _rdata, _original_message) do
+    {:error, :unsupported}
   end
 
   defp decode_txt_strings(<<>>, acc), do: Enum.reverse(acc)

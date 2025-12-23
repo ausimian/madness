@@ -130,18 +130,22 @@ defmodule Madness.Resource do
           actual_class = class &&& 0x7FFF
           record_type = Madness.Type.from_int(type)
 
-          rdata = Madness.Rdata.decode(record_type, rdata_binary, original_message || data)
+          case Madness.Rdata.decode(record_type, rdata_binary, original_message || data) do
+            {:error, reason} ->
+              {:error, reason}
 
-          resource = %__MODULE__{
-            name: name,
-            type: record_type,
-            class: Madness.Class.from_int(actual_class),
-            cache_flush: cache_flush,
-            ttl: ttl,
-            rdata: rdata
-          }
+            rdata ->
+              resource = %__MODULE__{
+                name: name,
+                type: record_type,
+                class: Madness.Class.from_int(actual_class),
+                cache_flush: cache_flush,
+                ttl: ttl,
+                rdata: rdata
+              }
 
-          {:ok, resource, rest2}
+              {:ok, resource, rest2}
+          end
 
         _ ->
           {:error, "insufficient data to decode resource record"}

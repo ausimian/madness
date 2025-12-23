@@ -21,8 +21,9 @@ defmodule Madness.QuestionTest do
       <<_name::binary-size(13), type::16, class::16>> = encoded
       # A record
       assert type == 1
-      # IN class
-      assert class == 1
+      # IN class (with unicast_response bit set by default)
+      assert (class &&& 0x7FFF) == 1
+      assert (class &&& 0x8000) == 0x8000
     end
 
     test "encodes PTR record question" do
@@ -105,8 +106,22 @@ defmodule Madness.QuestionTest do
   end
 
   describe "encode/1 with unicast_response flag" do
-    test "encodes with unicast_response=false (default)" do
+    test "encodes with unicast_response=true (default)" do
       question = %Question{name: "example.com", type: :a, class: :in}
+
+      {encoded, _map} = Question.encode(question)
+
+      name_size = byte_size(encoded) - 4
+      <<_name::binary-size(name_size), _type::16, class::16>> = encoded
+
+      # Top bit should be set (default is true)
+      assert (class &&& 0x8000) == 0x8000
+      # IN class
+      assert (class &&& 0x7FFF) == 1
+    end
+
+    test "encodes with unicast_response=false" do
+      question = %Question{name: "example.com", type: :a, class: :in, unicast_response: false}
 
       {encoded, _map} = Question.encode(question)
 
@@ -115,20 +130,6 @@ defmodule Madness.QuestionTest do
 
       # Top bit should not be set
       assert (class &&& 0x8000) == 0
-      # IN class
-      assert (class &&& 0x7FFF) == 1
-    end
-
-    test "encodes with unicast_response=true" do
-      question = %Question{name: "example.com", type: :a, class: :in, unicast_response: true}
-
-      {encoded, _map} = Question.encode(question)
-
-      name_size = byte_size(encoded) - 4
-      <<_name::binary-size(name_size), _type::16, class::16>> = encoded
-
-      # Top bit should be set
-      assert (class &&& 0x8000) == 0x8000
       # IN class
       assert (class &&& 0x7FFF) == 1
     end

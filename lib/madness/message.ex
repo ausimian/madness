@@ -110,12 +110,8 @@ defmodule Madness.Message do
   end
 
   defp decode_list(data, count, original_message, decode_fn, acc) do
-    case decode_fn.(data, original_message) do
-      {:ok, item, rest} ->
-        decode_list(rest, count - 1, original_message, decode_fn, [item | acc])
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, item, rest} <- decode_fn.(data, original_message) do
+      decode_list(rest, count - 1, original_message, decode_fn, [item | acc])
     end
   end
 end

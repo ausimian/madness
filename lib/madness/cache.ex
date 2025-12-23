@@ -332,12 +332,16 @@ defmodule Madness.Cache do
 
   defp process_packet(packet, family, ifindex) do
     # Decode the DNS message
-    {:ok, %Message{} = msg, <<>>} =
-      packet
-      |> IO.iodata_to_binary()
-      |> Message.decode()
+    case packet
+         |> IO.iodata_to_binary()
+         |> Message.decode() do
+      {:ok, %Message{} = msg, <<>>} ->
+        process_message(msg, family, ifindex)
 
-    process_message(msg, family, ifindex)
+      {:error, _reason} ->
+        # Skip malformed packets
+        :ok
+    end
   end
 
   defp process_message(%Message{} = msg, family, ifindex) do

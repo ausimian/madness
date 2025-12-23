@@ -74,7 +74,7 @@ defmodule Madness.MessageTest do
             type: :a,
             class: :in,
             ttl: 300,
-            rdata: <<192, 168, 1, 1>>
+            rdata: {192, 168, 1, 1}
           }
         ]
       }
@@ -106,7 +106,7 @@ defmodule Madness.MessageTest do
             type: :ptr,
             class: :in,
             ttl: 4500,
-            rdata: <<7, "myhost", 6, "_http", 4, "_tcp", 5, "local", 0>>
+            rdata: "myhost._http._tcp.local"
           }
         ],
         authorities: [
@@ -115,7 +115,7 @@ defmodule Madness.MessageTest do
             type: :ns,
             class: :in,
             ttl: 1000,
-            rdata: <<2, "ns", 5, "local", 0>>
+            rdata: "ns.local"
           }
         ],
         additionals: [
@@ -124,7 +124,7 @@ defmodule Madness.MessageTest do
             type: :a,
             class: :in,
             ttl: 120,
-            rdata: <<10, 0, 0, 1>>
+            rdata: {10, 0, 0, 1}
           }
         ]
       }
@@ -178,7 +178,7 @@ defmodule Madness.MessageTest do
             class: :in,
             cache_flush: true,
             ttl: 120,
-            rdata: <<1, 2, 3, 4>>
+            rdata: {1, 2, 3, 4}
           }
         ]
       }
@@ -219,7 +219,7 @@ defmodule Madness.MessageTest do
             type: :a,
             class: :in,
             ttl: 300,
-            rdata: <<1, 2, 3, 4>>
+            rdata: {1, 2, 3, 4}
           }
         ]
       }
@@ -291,13 +291,13 @@ defmodule Madness.MessageTest do
           %Question{name: "b.local", type: :a, class: :in}
         ],
         answers: [
-          %Resource{name: "c.local", type: :a, class: :in, ttl: 100, rdata: <<1, 2, 3, 4>>}
+          %Resource{name: "c.local", type: :a, class: :in, ttl: 100, rdata: {1, 2, 3, 4}}
         ],
         authorities: [],
         additionals: [
-          %Resource{name: "d.local", type: :a, class: :in, ttl: 100, rdata: <<5, 6, 7, 8>>},
-          %Resource{name: "e.local", type: :a, class: :in, ttl: 100, rdata: <<9, 10, 11, 12>>},
-          %Resource{name: "f.local", type: :a, class: :in, ttl: 100, rdata: <<13, 14, 15, 16>>}
+          %Resource{name: "d.local", type: :a, class: :in, ttl: 100, rdata: {5, 6, 7, 8}},
+          %Resource{name: "e.local", type: :a, class: :in, ttl: 100, rdata: {9, 10, 11, 12}},
+          %Resource{name: "f.local", type: :a, class: :in, ttl: 100, rdata: {13, 14, 15, 16}}
         ]
       }
 
@@ -457,7 +457,7 @@ defmodule Madness.MessageTest do
             type: :aaaa,
             class: :in,
             ttl: 300,
-            rdata: <<0x2001::16, 0x0DB8::16, 0::16, 0::16, 0::16, 0::16, 0::16, 1::16>>
+            rdata: {0x2001, 0x0DB8, 0, 0, 0, 0, 0, 1}
           }
         ]
       }
@@ -557,14 +557,14 @@ defmodule Madness.MessageTest do
             type: :a,
             class: :in,
             ttl: 300,
-            rdata: <<1, 2, 3, 4>>
+            rdata: {1, 2, 3, 4}
           },
           %Resource{
             name: "www.example.com",
             type: :a,
             class: :in,
             ttl: 300,
-            rdata: <<5, 6, 7, 8>>
+            rdata: {5, 6, 7, 8}
           }
         ],
         authorities: [
@@ -582,7 +582,7 @@ defmodule Madness.MessageTest do
             type: :a,
             class: :in,
             ttl: 3600,
-            rdata: <<9, 10, 11, 12>>
+            rdata: {9, 10, 11, 12}
           }
         ]
       }
@@ -630,7 +630,7 @@ defmodule Madness.MessageTest do
             type: :a,
             class: :in,
             ttl: 120,
-            rdata: <<192, 168, 1, 100>>
+            rdata: {192, 168, 1, 100}
           }
         ]
       }
@@ -764,7 +764,7 @@ defmodule Madness.MessageTest do
             type: :a,
             class: :in,
             ttl: 0,
-            rdata: <<127, 0, 0, 1>>
+            rdata: {127, 0, 0, 1}
           }
         ]
       }
@@ -785,7 +785,7 @@ defmodule Madness.MessageTest do
             type: :a,
             class: :in,
             ttl: 2_147_483_647,
-            rdata: <<127, 0, 0, 1>>
+            rdata: {127, 0, 0, 1}
           }
         ]
       }
@@ -807,7 +807,7 @@ defmodule Madness.MessageTest do
               type: :a,
               class: :in,
               ttl: 120,
-              rdata: <<i, i, i, i>>
+              rdata: {i, i, i, i}
             }
 
       authorities =
@@ -827,7 +827,7 @@ defmodule Madness.MessageTest do
               type: :a,
               class: :in,
               ttl: 60,
-              rdata: <<i, i, i, i>>
+              rdata: {i, i, i, i}
             }
 
       original = %Message{

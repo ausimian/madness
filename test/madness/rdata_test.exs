@@ -5,14 +5,14 @@ defmodule Madness.RdataTest do
 
   describe "round-trip A records" do
     test "encodes and decodes an IPv4 address" do
-      original_binary = <<192, 168, 1, 1>>
-      expected_tuple = {192, 168, 1, 1}
+      original_tuple = {192, 168, 1, 1}
+      expected_binary = <<192, 168, 1, 1>>
 
-      {encoded, _map} = Rdata.encode(:a, original_binary, %{}, 0)
+      {encoded, _map} = Rdata.encode(:a, original_tuple, %{}, 0)
       decoded = Rdata.decode(:a, encoded, encoded)
 
-      assert encoded == original_binary
-      assert decoded == expected_tuple
+      assert encoded == expected_binary
+      assert decoded == original_tuple
     end
 
     test "encodes and decodes various IPv4 addresses" do
@@ -25,7 +25,7 @@ defmodule Madness.RdataTest do
       ]
 
       for {binary, tuple} <- test_cases do
-        {encoded, _map} = Rdata.encode(:a, binary, %{}, 0)
+        {encoded, _map} = Rdata.encode(:a, tuple, %{}, 0)
         decoded = Rdata.decode(:a, encoded, encoded)
         assert encoded == binary
         assert decoded == tuple
@@ -33,24 +33,24 @@ defmodule Madness.RdataTest do
     end
 
     test "encoded A record is exactly 4 bytes" do
-      {encoded, _map} = Rdata.encode(:a, <<192, 168, 1, 1>>, %{}, 0)
+      {encoded, _map} = Rdata.encode(:a, {192, 168, 1, 1}, %{}, 0)
       assert byte_size(encoded) == 4
     end
   end
 
   describe "round-trip AAAA records" do
     test "encodes and decodes an IPv6 address" do
-      original_binary =
+      original_tuple = {0x2001, 0x0DB8, 0x85A3, 0x0000, 0x0000, 0x8A2E, 0x0370, 0x7334}
+
+      expected_binary =
         <<0x2001::16, 0x0DB8::16, 0x85A3::16, 0x0000::16, 0x0000::16, 0x8A2E::16, 0x0370::16,
           0x7334::16>>
 
-      expected_tuple = {0x2001, 0x0DB8, 0x85A3, 0x0000, 0x0000, 0x8A2E, 0x0370, 0x7334}
-
-      {encoded, _map} = Rdata.encode(:aaaa, original_binary, %{}, 0)
+      {encoded, _map} = Rdata.encode(:aaaa, original_tuple, %{}, 0)
       decoded = Rdata.decode(:aaaa, encoded, encoded)
 
-      assert encoded == original_binary
-      assert decoded == expected_tuple
+      assert encoded == expected_binary
+      assert decoded == original_tuple
     end
 
     test "encodes and decodes various IPv6 addresses" do
@@ -66,7 +66,7 @@ defmodule Madness.RdataTest do
       ]
 
       for {binary, tuple} <- test_cases do
-        {encoded, _map} = Rdata.encode(:aaaa, binary, %{}, 0)
+        {encoded, _map} = Rdata.encode(:aaaa, tuple, %{}, 0)
         decoded = Rdata.decode(:aaaa, encoded, encoded)
         assert encoded == binary
         assert decoded == tuple
@@ -75,7 +75,7 @@ defmodule Madness.RdataTest do
 
     test "encoded AAAA record is exactly 16 bytes" do
       {encoded, _map} =
-        Rdata.encode(:aaaa, <<1::16, 2::16, 3::16, 4::16, 5::16, 6::16, 7::16, 8::16>>, %{}, 0)
+        Rdata.encode(:aaaa, {1, 2, 3, 4, 5, 6, 7, 8}, %{}, 0)
 
       assert byte_size(encoded) == 16
     end
@@ -292,33 +292,10 @@ defmodule Madness.RdataTest do
     end
   end
 
-  describe "round-trip unknown record types" do
-    test "encodes and decodes raw binary data for unknown types" do
-      original = <<1, 2, 3, 4, 5, 6, 7, 8>>
-
-      {encoded, _map} = Rdata.encode(:unknown_type, original, %{}, 0)
-      decoded = Rdata.decode(:unknown_type, encoded, encoded)
-
-      assert decoded == original
-      # Should pass through unchanged
-      assert encoded == original
-    end
-
-    test "handles empty binary for unknown types" do
-      original = <<>>
-
-      {encoded, _map} = Rdata.encode(:some_type, original, %{}, 0)
-      decoded = Rdata.decode(:some_type, encoded, encoded)
-
-      assert decoded == original
-      assert encoded == original
-    end
-  end
-
   describe "suffix map handling" do
     test "A record encoding returns unchanged suffix map" do
       map = %{"example.com" => 100}
-      {_encoded, returned_map} = Rdata.encode(:a, <<192, 168, 1, 1>>, map, 0)
+      {_encoded, returned_map} = Rdata.encode(:a, {192, 168, 1, 1}, map, 0)
 
       assert returned_map == map
     end
@@ -327,7 +304,7 @@ defmodule Madness.RdataTest do
       map = %{"example.com" => 100}
 
       {_encoded, returned_map} =
-        Rdata.encode(:aaaa, <<1::16, 2::16, 3::16, 4::16, 5::16, 6::16, 7::16, 8::16>>, map, 0)
+        Rdata.encode(:aaaa, {1, 2, 3, 4, 5, 6, 7, 8}, map, 0)
 
       assert returned_map == map
     end

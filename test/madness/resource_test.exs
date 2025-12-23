@@ -10,7 +10,7 @@ defmodule Madness.ResourceTest do
         type: :a,
         class: :in,
         ttl: 300,
-        rdata: <<192, 168, 1, 1>>
+        rdata: {192, 168, 1, 1}
       }
 
       {encoded, _map} = Resource.encode(resource)
@@ -27,7 +27,7 @@ defmodule Madness.ResourceTest do
         class: :in,
         cache_flush: false,
         ttl: 300,
-        rdata: <<1, 2, 3, 4>>
+        rdata: {1, 2, 3, 4}
       }
 
       {encoded, _map} = Resource.encode(resource)
@@ -47,7 +47,7 @@ defmodule Madness.ResourceTest do
         class: :in,
         cache_flush: true,
         ttl: 300,
-        rdata: <<1, 2, 3, 4>>
+        rdata: {1, 2, 3, 4}
       }
 
       {encoded, _map} = Resource.encode(resource)
@@ -65,7 +65,7 @@ defmodule Madness.ResourceTest do
         type: :a,
         class: :in,
         ttl: 4500,
-        rdata: <<10, 0, 0, 1>>
+        rdata: {10, 0, 0, 1}
       }
 
       {encoded, _map} = Resource.encode(resource)
@@ -77,7 +77,7 @@ defmodule Madness.ResourceTest do
     end
 
     test "encodes rdlength based on rdata size" do
-      rdata = <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10>>
+      rdata = ["test", "data"]
 
       resource = %Resource{
         name: "test.local",
@@ -161,7 +161,7 @@ defmodule Madness.ResourceTest do
           class: :in,
           cache_flush: true,
           ttl: 120,
-          rdata: <<10, 0, 0, 5>>
+          rdata: {10, 0, 0, 5}
         })
 
       {encoded, _map} = Resource.encode(original)
@@ -176,16 +176,25 @@ defmodule Madness.ResourceTest do
     end
 
     test "round-trips all common record types" do
-      types = [:a, :ns, :cname, :ptr, :txt, :aaaa, :srv, :nsec, :any]
+      test_data = [
+        {:a, {1, 2, 3, 4}},
+        {:aaaa, {1, 2, 3, 4, 5, 6, 7, 8}},
+        {:ns, "ns.test.local"},
+        {:cname, "alias.test.local"},
+        {:ptr, "target.test.local"},
+        {:txt, ["text1", "text2"]},
+        {:srv, %{priority: 10, weight: 20, port: 80, target: "server.test.local"}},
+        {:nsec, %{name: "next.test.local", types: [:a, :aaaa, :srv]}}
+      ]
 
-      for type <- types do
+      for {type, rdata} <- test_data do
         original =
           Resource.new(%{
             name: "test.local",
             type: type,
             class: :in,
             ttl: 300,
-            rdata: <<1, 2, 3, 4>>
+            rdata: rdata
           })
 
         {encoded, _map} = Resource.encode(original)

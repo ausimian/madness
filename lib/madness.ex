@@ -58,8 +58,13 @@ defmodule Madness do
 
     receive do
       {^palias, family, ifindex, iov} ->
-        {:ok, message, <<>>} = Message.decode(IO.iodata_to_binary(iov))
-        {[%{family: family, ifindex: ifindex, message: message}], state}
+       case Message.decode(IO.iodata_to_binary(iov)) do
+        {:ok, message, <<>>} ->
+          {[%{family: family, ifindex: ifindex, message: message}], state}
+
+        _ ->
+          {[], state}
+      end
     after
       remaining ->
         {:halt, state}
