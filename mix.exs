@@ -23,7 +23,7 @@ defmodule Madness.MixProject do
   defp deps do
     [
       {:typedstruct, "~> 0.5", runtime: false},
-      {:inertial, git: "https://github.com/ausimian/inertial", branch: "main"}
+      {:inertial, "~> 2.0.0"}
     ]
   end
 end

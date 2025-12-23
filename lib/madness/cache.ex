@@ -105,7 +105,7 @@ defmodule Madness.Cache do
     :ets.new(__MODULE__, [:set, :protected, :named_table, keypos: entry(:key) + 1])
 
     # Subscribe to interface events
-    ref = Madness.InertialHandler.install()
+    ref = Inertial.subscribe()
 
     # Create IPv4 and IPv6 sockets and send self messages to listen on them
     {:ok, sock_ipv4} = :socket.open(:inet, :dgram, :udp)
@@ -153,10 +153,10 @@ defmodule Madness.Cache do
 
     if Enum.any?(prefixes, &String.starts_with?(ifname, &1)) do
       case event do
-        %{type: :if_up} ->
+        %{type: :link_up} ->
           {:noreply, maybe_add_ipv6_membership(ifname, state)}
 
-        %{type: :if_down} ->
+        %{type: :link_down} ->
           {:noreply, maybe_drop_ipv6_membership(ifname, state)}
 
         %{type: :new_addr, addr: {_, _, _, _} = addr} ->
