@@ -21,3 +21,9 @@ madness-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Claude AI files
+/.claude/
+
+# IEX history
+/.erl.history/
