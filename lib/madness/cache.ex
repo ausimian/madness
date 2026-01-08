@@ -428,6 +428,7 @@ defmodule Madness.Cache do
   defp remove_recs(key, recs, rdata) do
     updated = for {data, _} = rec <- recs, data != rdata, do: rec
     :ets.insert(__MODULE__, entry(key: key, recs: updated))
+    Madness.Events.notify(key)
     :ok
   end
 
@@ -441,6 +442,7 @@ defmodule Madness.Cache do
       end
 
     :ets.insert(__MODULE__, entry(key: key, recs: updated))
+    Madness.Events.notify(key)
     :ok
   end
 

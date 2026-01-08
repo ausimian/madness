@@ -8,6 +8,7 @@ defmodule Madness.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      {Madness.Events, []},
       {Madness.Cache, []},
       {DynamicSupervisor, strategy: :one_for_one, name: Madness.ClientSupervisor}
       # Starts a worker by calling: Madness.Worker.start_link(arg)

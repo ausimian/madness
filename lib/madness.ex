@@ -11,6 +11,18 @@ defmodule Madness do
   defdelegate new_query, to: Query, as: :new
   defdelegate add_question(query, question), to: Query
 
+  def subscribe(filter \\ %{}) do
+    alias = Process.alias()
+
+    with :ok <- Madness.Events.subscribe(alias, filter) do
+      {:ok, alias}
+    end
+  end
+
+  def unsubscribe(alias) do
+    Madness.Events.unsubscribe(alias)
+  end
+
   @spec query(Query.t() | binary()) :: Enumerable.t()
   @spec query(Query.t() | binary(), keyword() | atom()) :: Enumerable.t()
   @spec query(binary(), atom(), keyword()) :: Enumerable.t()
