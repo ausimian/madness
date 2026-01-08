@@ -11,18 +11,70 @@ defmodule Madness do
   defdelegate new_query, to: Query, as: :new
   defdelegate add_question(query, question), to: Query
 
-  @spec stream(Query.t()) :: Enumerable.t()
-  @spec stream(Query.t(), keyword()) :: Enumerable.t()
-  def stream(query, opts \\ [])
+  @spec query(Query.t() | keyword()) :: Enumerable.t()
+  @spec query(Query.t() | keyword(), keyword()) :: Enumerable.t()
+  def query(query, opts \\ [])
 
-  def stream(%Query{questions: []}, _opts), do: []
+  def query(%Query{questions: []}, _opts), do: []
 
-  def stream(%Query{} = query, opts) do
+  def query(question_attrs, opts) when is_list(question_attrs) and is_list(opts) do
+    {question_keys, query_opts} =
+      Keyword.split(question_attrs, [:name, :type, :class, :unicast_response])
+
+    query =
+      Query.new()
+      |> Query.add_question(Map.new(question_keys))
+
+    query(query, query_opts ++ opts)
+  end
+
+  def query(%Query{} = query, opts) do
     if Query.all_unicast?(query) do
-      Stream.resource(fn -> send_query(query, opts) end, &recv_responses/1, &stop/1)
+      case Keyword.get(opts, :timeout, 5_000) do
+        0 ->
+          cache_only_stream(query, opts)
+
+        _timeout ->
+          Stream.resource(fn -> send_query(query, opts) end, &recv_responses/1, &stop/1)
+      end
     else
       {:error, :multicast_query}
     end
+  end
+
+  defp cache_only_stream(%Query{} = query, opts) do
+    family = Keyword.get(opts, :family)
+    ifindex = Keyword.get(opts, :ifindex)
+
+    Stream.resource(
+      fn ->
+        case :net.getifaddrs(net_filter(family, ifindex)) do
+          {:ok, ifaddrs} -> ifaddrs
+          _ -> []
+        end
+      end,
+      fn
+        [] ->
+          {:halt, []}
+
+        [%{name: name, addr: %{family: fam}} = ifaddr | rest] ->
+          idx =
+            case ifaddr do
+              %{addr: %{family: :inet6, scope_id: scope_id}} -> scope_id
+              %{addr: %{family: :inet}} -> elem(:net.if_name2index(name), 1)
+            end
+
+          answers = Madness.Cache.lookup(query.questions, fam, idx)
+
+          if answers == [] do
+            {[], rest}
+          else
+            message = %{Message.new() | answers: answers}
+            {[%{family: fam, ifindex: idx, message: message}], rest}
+          end
+      end,
+      fn _ -> :ok end
+    )
   end
 
   defp send_query(%Query{} = query, opts) do

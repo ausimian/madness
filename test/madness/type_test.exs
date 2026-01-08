@@ -102,4 +102,54 @@ defmodule Madness.TypeTest do
       end
     end
   end
+
+  describe "is_valid_type/1 guard" do
+    test "accepts known type atoms" do
+      for type <- [:a, :ns, :cname, :ptr, :txt, :aaaa, :srv, :nsec, :any] do
+        assert valid_type?(type)
+      end
+    end
+
+    test "accepts integers" do
+      assert valid_type?(1)
+      assert valid_type?(100)
+      assert valid_type?(65535)
+    end
+
+    test "rejects unknown atoms" do
+      refute valid_type?(:unknown)
+      refute valid_type?(:mx)
+    end
+  end
+
+  describe "is_valid_query_type/1 guard" do
+    test "accepts valid query types" do
+      for type <- [:a, :cname, :ptr, :txt, :aaaa, :srv, :any] do
+        assert valid_query_type?(type)
+      end
+    end
+
+    test "rejects non-query types" do
+      refute valid_query_type?(:ns)
+      refute valid_query_type?(:nsec)
+      refute valid_query_type?(1)
+    end
+  end
+
+  # Helper functions to test guards
+  require Madness.Type
+
+  defp valid_type?(t) do
+    case t do
+      t when Type.is_valid_type(t) -> true
+      _ -> false
+    end
+  end
+
+  defp valid_query_type?(t) do
+    case t do
+      t when Type.is_valid_query_type(t) -> true
+      _ -> false
+    end
+  end
 end

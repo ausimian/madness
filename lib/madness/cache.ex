@@ -86,6 +86,11 @@ defmodule Madness.Cache do
     GenServer.call(__MODULE__, {:put_response, data, family, ifindex})
   end
 
+  @doc false
+  def clear do
+    GenServer.call(__MODULE__, :clear)
+  end
+
   @multicast_addr {224, 0, 0, 251}
   @mdns_port 5353
 
@@ -123,6 +128,11 @@ defmodule Madness.Cache do
     GenServer.reply(from, :ok)
     process_packet(data, family, ifindex)
     {:noreply, state}
+  end
+
+  def handle_call(:clear, _from, %__MODULE__{} = state) do
+    :ets.delete_all_objects(__MODULE__)
+    {:reply, :ok, state}
   end
 
   @impl true
