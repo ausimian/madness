@@ -15,6 +15,8 @@ defmodule Madness.Cache do
 
   defrecordp :entry, key: nil, recs: []
 
+  @gc_interval Application.compile_env(:madness, :gc_interval, :timer.seconds(60))
+
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -99,6 +101,11 @@ defmodule Madness.Cache do
     GenServer.call(__MODULE__, :sync)
   end
 
+  @doc false
+  def gc(now \\ :erlang.monotonic_time(:second)) do
+    GenServer.call(__MODULE__, {:gc, now})
+  end
+
   @multicast_addr {224, 0, 0, 251}
   @mdns_port 5353
 
@@ -127,6 +134,8 @@ defmodule Madness.Cache do
     {:ok, sock_ipv6} = :socket.open(:inet6, :dgram, :udp)
     send(self(), {:listen, sock_ipv6})
 
+    schedule_gc()
+
     {:ok, %__MODULE__{sub: ref, sock_ipv4: sock_ipv4, sock_ipv6: sock_ipv6}}
   end
 
@@ -144,6 +153,11 @@ defmodule Madness.Cache do
 
   def handle_call(:clear, _from, %__MODULE__{} = state) do
     :ets.delete_all_objects(__MODULE__)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:gc, now}, _from, %__MODULE__{} = state) do
+    gc_walk(:ets.first(__MODULE__), now)
     {:reply, :ok, state}
   end
 
@@ -168,6 +182,12 @@ defmodule Madness.Cache do
   def handle_info({:"$socket", sock, :select, _}, %__MODULE__{} = state) do
     # Socket is ready, continue receiving messages
     {:noreply, state, {:continue, {:recvmsg, sock}}}
+  end
+
+  def handle_info(:gc, %__MODULE__{} = state) do
+    gc_walk(:ets.first(__MODULE__), :erlang.monotonic_time(:second))
+    schedule_gc()
+    {:noreply, state}
   end
 
   def handle_info({ref, %{ifname: ifname} = event}, %__MODULE__{sub: ref} = state) do
@@ -422,5 +442,26 @@ defmodule Madness.Cache do
 
     :ets.insert(__MODULE__, entry(key: key, recs: updated))
     :ok
+  end
+
+  defp schedule_gc do
+    if @gc_interval != :infinity do
+      Process.send_after(self(), :gc, @gc_interval)
+    end
+  end
+
+  defp gc_walk(:"$end_of_table", _now), do: :ok
+
+  defp gc_walk(key, now) do
+    [entry(recs: recs)] = :ets.lookup(__MODULE__, key)
+    next_key = :ets.next(__MODULE__, key)
+
+    case Enum.split_with(recs, fn {_, _, xat} -> xat > now end) do
+      {[], _expired} -> :ets.delete(__MODULE__, key)
+      {^recs, []} -> :ok
+      {unexpired, _expired} -> :ets.insert(__MODULE__, entry(key: key, recs: unexpired))
+    end
+
+    gc_walk(next_key, now)
   end
 end

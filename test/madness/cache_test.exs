@@ -82,20 +82,22 @@ defmodule Madness.CacheTest do
 
     test "follows PTR -> SRV related questions" do
       # Insert PTR record pointing to a service
-      ptr = Resource.new(%{
-        name: "_http._tcp.local",
-        type: :ptr,
-        ttl: 4500,
-        rdata: "myservice._http._tcp.local"
-      })
+      ptr =
+        Resource.new(%{
+          name: "_http._tcp.local",
+          type: :ptr,
+          ttl: 4500,
+          rdata: "myservice._http._tcp.local"
+        })
 
       # Insert SRV record for the service
-      srv = Resource.new(%{
-        name: "myservice._http._tcp.local",
-        type: :srv,
-        ttl: 4500,
-        rdata: %{priority: 0, weight: 0, port: 80, target: "myhost.local"}
-      })
+      srv =
+        Resource.new(%{
+          name: "myservice._http._tcp.local",
+          type: :srv,
+          ttl: 4500,
+          rdata: %{priority: 0, weight: 0, port: 80, target: "myhost.local"}
+        })
 
       response = build_response([ptr, srv])
       put_and_sync(response, :inet, 1)
@@ -111,36 +113,40 @@ defmodule Madness.CacheTest do
 
     test "follows SRV -> TXT, A, AAAA related questions" do
       # Insert SRV record
-      srv = Resource.new(%{
-        name: "myservice._http._tcp.local",
-        type: :srv,
-        ttl: 4500,
-        rdata: %{priority: 0, weight: 0, port: 8080, target: "server.local"}
-      })
+      srv =
+        Resource.new(%{
+          name: "myservice._http._tcp.local",
+          type: :srv,
+          ttl: 4500,
+          rdata: %{priority: 0, weight: 0, port: 8080, target: "server.local"}
+        })
 
       # Insert TXT record
-      txt = Resource.new(%{
-        name: "myservice._http._tcp.local",
-        type: :txt,
-        ttl: 4500,
-        rdata: ["key=value"]
-      })
+      txt =
+        Resource.new(%{
+          name: "myservice._http._tcp.local",
+          type: :txt,
+          ttl: 4500,
+          rdata: ["key=value"]
+        })
 
       # Insert A record for target
-      a = Resource.new(%{
-        name: "server.local",
-        type: :a,
-        ttl: 4500,
-        rdata: {192, 168, 1, 100}
-      })
+      a =
+        Resource.new(%{
+          name: "server.local",
+          type: :a,
+          ttl: 4500,
+          rdata: {192, 168, 1, 100}
+        })
 
       # Insert AAAA record for target
-      aaaa = Resource.new(%{
-        name: "server.local",
-        type: :aaaa,
-        ttl: 4500,
-        rdata: {0x2001, 0xdb8, 0, 0, 0, 0, 0, 1}
-      })
+      aaaa =
+        Resource.new(%{
+          name: "server.local",
+          type: :aaaa,
+          ttl: 4500,
+          rdata: {0x2001, 0xDB8, 0, 0, 0, 0, 0, 1}
+        })
 
       response = build_response([srv, txt, a, aaaa])
       put_and_sync(response, :inet, 1)
@@ -245,13 +251,15 @@ defmodule Madness.CacheTest do
       put_and_sync(response1, :inet, 1)
 
       # Insert new record with cache_flush
-      r2 = Resource.new(%{
-        name: "flush.local",
-        type: :a,
-        ttl: 4500,
-        rdata: {2, 2, 2, 2},
-        cache_flush: true
-      })
+      r2 =
+        Resource.new(%{
+          name: "flush.local",
+          type: :a,
+          ttl: 4500,
+          rdata: {2, 2, 2, 2},
+          cache_flush: true
+        })
+
       response2 = build_response([r2])
       put_and_sync(response2, :inet, 1)
 
@@ -318,6 +326,74 @@ defmodule Madness.CacheTest do
       assert length(answers) == 2
       rdatas = Enum.map(answers, & &1.rdata) |> Enum.sort()
       assert [{10, 0, 0, 1}, {10, 0, 0, 2}] == rdatas
+    end
+  end
+
+  describe "gc/1" do
+    test "deletes entries where all recs are expired" do
+      # Insert a record with TTL of 100 seconds
+      answer = Resource.new(%{name: "gc-expire.local", type: :a, ttl: 100, rdata: {1, 1, 1, 1}})
+      response = build_response([answer])
+      put_and_sync(response, :inet, 1)
+
+      questions = [%Question{name: "gc-expire.local", type: :a, class: :in}]
+      now = :erlang.monotonic_time(:second)
+
+      # Verify the record is present
+      {answers, _known} = Cache.lookup(questions, :inet, 1, now)
+      assert length(answers) == 1
+
+      # Run GC at a time after TTL has expired
+      :ok = Cache.gc(now + 101)
+
+      # Entry should be deleted - lookup should return empty even at original time
+      {answers, _known} = Cache.lookup(questions, :inet, 1, now)
+      assert answers == []
+    end
+
+    test "updates entries where only some recs are expired" do
+      # Insert two records with different TTLs
+      r1 = Resource.new(%{name: "gc-partial.local", type: :a, ttl: 100, rdata: {1, 1, 1, 1}})
+      r2 = Resource.new(%{name: "gc-partial.local", type: :a, ttl: 500, rdata: {2, 2, 2, 2}})
+      response = build_response([r1, r2])
+      put_and_sync(response, :inet, 1)
+
+      questions = [%Question{name: "gc-partial.local", type: :a, class: :in}]
+      now = :erlang.monotonic_time(:second)
+
+      # Verify both records are present
+      {answers, _known} = Cache.lookup(questions, :inet, 1, now)
+      assert length(answers) == 2
+
+      # Run GC at a time after only the first TTL has expired
+      :ok = Cache.gc(now + 150)
+
+      # Only the long-TTL record should remain
+      {answers, _known} = Cache.lookup(questions, :inet, 1, now)
+      assert length(answers) == 1
+      assert [%Resource{rdata: {2, 2, 2, 2}}] = answers
+    end
+
+    test "leaves entries where all recs are still valid" do
+      # Insert a record with a long TTL
+      answer = Resource.new(%{name: "gc-valid.local", type: :a, ttl: 1000, rdata: {3, 3, 3, 3}})
+      response = build_response([answer])
+      put_and_sync(response, :inet, 1)
+
+      questions = [%Question{name: "gc-valid.local", type: :a, class: :in}]
+      now = :erlang.monotonic_time(:second)
+
+      # Verify the record is present
+      {answers, _known} = Cache.lookup(questions, :inet, 1, now)
+      assert length(answers) == 1
+
+      # Run GC at a time before TTL expires
+      :ok = Cache.gc(now + 100)
+
+      # Record should still be present
+      {answers, _known} = Cache.lookup(questions, :inet, 1, now)
+      assert length(answers) == 1
+      assert [%Resource{rdata: {3, 3, 3, 3}}] = answers
     end
   end
 end
