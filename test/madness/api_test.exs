@@ -40,11 +40,11 @@ defmodule Madness.ApiTest do
     end
   end
 
-  describe "query/1 with keyword list" do
-    test "builds query from keyword list" do
+  describe "query/3 with name, type, opts" do
+    test "builds query from name, type, and options" do
       # Use timeout: 0 to avoid network calls
       result =
-        Madness.query(type: :ptr, name: "_test._tcp.local", timeout: 0)
+        Madness.query("_test._tcp.local", :ptr, timeout: 0)
         |> Enum.to_list()
 
       # Should return empty list (nothing in cache for this query)
@@ -54,7 +54,7 @@ defmodule Madness.ApiTest do
     test "passes through query options" do
       # timeout: 0 should use cache-only mode
       result =
-        Madness.query([type: :a, name: "api-test.local"], timeout: 0)
+        Madness.query("api-test.local", :a, timeout: 0)
         |> Enum.to_list()
 
       assert is_list(result)
@@ -64,12 +64,13 @@ defmodule Madness.ApiTest do
   describe "query/2 with timeout: 0 (cache-only mode)" do
     test "returns cached results without network query" do
       # First, populate the cache
-      answer = Resource.new(%{
-        name: "cached.local",
-        type: :a,
-        ttl: 300,
-        rdata: {192, 168, 100, 1}
-      })
+      answer =
+        Resource.new(%{
+          name: "cached.local",
+          type: :a,
+          ttl: 300,
+          rdata: {192, 168, 100, 1}
+        })
 
       response =
         %Message{
@@ -131,8 +132,8 @@ defmodule Madness.ApiTest do
       assert {:error, :multicast_query} = Madness.query(query)
     end
 
-    test "returns error for non-unicast question via keyword" do
-      result = Madness.query(type: :a, name: "test.local", unicast_response: false)
+    test "returns error for non-unicast question via simplified API" do
+      result = Madness.query("test.local", :a, unicast_response: false)
       assert {:error, :multicast_query} = result
     end
   end

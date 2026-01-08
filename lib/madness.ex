@@ -11,22 +11,12 @@ defmodule Madness do
   defdelegate new_query, to: Query, as: :new
   defdelegate add_question(query, question), to: Query
 
-  @spec query(Query.t() | keyword()) :: Enumerable.t()
-  @spec query(Query.t() | keyword(), keyword()) :: Enumerable.t()
-  def query(query, opts \\ [])
+  @spec query(Query.t() | binary()) :: Enumerable.t()
+  @spec query(Query.t() | binary(), keyword() | atom()) :: Enumerable.t()
+  @spec query(binary(), atom(), keyword()) :: Enumerable.t()
+  def query(query_or_name, type_or_opts \\ [])
 
   def query(%Query{questions: []}, _opts), do: []
-
-  def query(question_attrs, opts) when is_list(question_attrs) and is_list(opts) do
-    {question_keys, query_opts} =
-      Keyword.split(question_attrs, [:name, :type, :class, :unicast_response])
-
-    query =
-      Query.new()
-      |> Query.add_question(Map.new(question_keys))
-
-    query(query, query_opts ++ opts)
-  end
 
   def query(%Query{} = query, opts) do
     if Query.all_unicast?(query) do
@@ -40,6 +30,25 @@ defmodule Madness do
     else
       {:error, :multicast_query}
     end
+  end
+
+  def query(name, type) when is_binary(name) and is_atom(type) do
+    query(name, type, [])
+  end
+
+  def query(name, type, opts) when is_binary(name) and is_atom(type) and is_list(opts) do
+    {timeout_opts, question_opts} = Keyword.split(opts, [:timeout])
+
+    question_attrs =
+      [name: name, type: type]
+      |> Keyword.merge(question_opts)
+      |> Keyword.take([:name, :type, :class, :unicast_response])
+
+    query =
+      Query.new()
+      |> Query.add_question(Map.new(question_attrs))
+
+    query(query, timeout_opts)
   end
 
   defp cache_only_stream(%Query{} = query, opts) do
