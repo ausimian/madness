@@ -72,7 +72,7 @@ defmodule Madness.Client do
 
   @impl true
   def handle_continue({:send_request, questions}, %__MODULE__{} = state) do
-    known = Cache.lookup(questions, state.family, state.ifindex)
+    {_answers, known} = Cache.lookup(questions, state.family, state.ifindex)
     query = Message.encode(%{Message.new() | questions: questions, answers: known})
 
     if Enum.any?(known) do

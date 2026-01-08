@@ -20,14 +20,14 @@ defmodule Madness.Cache do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
-  @spec lookup([Question.t()], :inet | :inet6, non_neg_integer()) :: [Resource.t()]
-  def lookup(questions, family, ifindex) do
-    now = :erlang.monotonic_time(:second)
-
+  @spec lookup([Question.t()], :inet | :inet6, non_neg_integer(), integer()) ::
+          {[Resource.t()], [Resource.t()]}
+  def lookup(questions, family, ifindex, now \\ :erlang.monotonic_time(:second)) do
     {questions, MapSet.new()}
     |> Stream.unfold(&rlookup(&1, family, ifindex, now))
-    |> Enum.to_list()
-    |> List.flatten()
+    |> Enum.reduce({[], []}, fn {answers, known}, {all_ans, all_known} ->
+      {answers ++ all_ans, known ++ all_known}
+    end)
   end
 
   defp rlookup({[], _}, _family, _ifindex, _now), do: nil
@@ -43,9 +43,9 @@ defmodule Madness.Cache do
 
       case :ets.lookup(__MODULE__, key) do
         [entry(recs: recs)] ->
-          {new_qs, new_ans} =
-            for {data, ttl, xat} <- recs, xat - now > div(ttl, 2), reduce: {MapSet.new(), []} do
-              {new_qs, new_ans} ->
+          {new_qs, new_ans, new_known} =
+            for {data, ttl, xat} <- recs, xat > now, reduce: {MapSet.new(), [], []} do
+              {new_qs, new_ans, new_known} ->
                 rem = xat - now
                 attrs = %{name: q.name, type: q.type, class: q.class, ttl: rem, rdata: data}
                 answer = Resource.new(attrs)
@@ -56,10 +56,13 @@ defmodule Madness.Cache do
                   |> Enum.reject(&MapSet.member?(asked, &1))
                   |> MapSet.new()
 
-                {MapSet.union(related, new_qs), [answer | new_ans]}
+                # Only include in known answers if more than half TTL remaining
+                new_known = if rem > div(ttl, 2), do: [answer | new_known], else: new_known
+
+                {MapSet.union(related, new_qs), [answer | new_ans], new_known}
             end
 
-          {new_ans, {Enum.to_list(new_qs) ++ qs, asked}}
+          {{new_ans, new_known}, {Enum.to_list(new_qs) ++ qs, asked}}
 
         [] ->
           rlookup({qs, asked}, family, ifindex, now)
@@ -89,6 +92,11 @@ defmodule Madness.Cache do
   @doc false
   def clear do
     GenServer.call(__MODULE__, :clear)
+  end
+
+  @doc false
+  def sync do
+    GenServer.call(__MODULE__, :sync)
   end
 
   @multicast_addr {224, 0, 0, 251}
@@ -124,10 +132,14 @@ defmodule Madness.Cache do
 
   @impl true
   def handle_call({:put_response, data, family, ifindex}, from, %__MODULE__{} = state) do
-    # Reply immediately to the caller, then process the packet
+    # Reply immediately to avoid blocking the caller
     GenServer.reply(from, :ok)
     process_packet(data, family, ifindex)
     {:noreply, state}
+  end
+
+  def handle_call(:sync, _from, %__MODULE__{} = state) do
+    {:reply, :ok, state}
   end
 
   def handle_call(:clear, _from, %__MODULE__{} = state) do

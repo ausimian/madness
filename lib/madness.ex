@@ -64,7 +64,7 @@ defmodule Madness do
               %{addr: %{family: :inet}} -> elem(:net.if_name2index(name), 1)
             end
 
-          answers = Madness.Cache.lookup(query.questions, fam, idx)
+          {answers, _known} = Madness.Cache.lookup(query.questions, fam, idx)
 
           if answers == [] do
             {[], rest}
